@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
       platform: body.platform,
       articlesCount: body.articles?.length || 0
     })
+    
 
     // 验证请求参数
     if (!body.keyword || !body.platform || !body.articles || body.articles.length === 0) {
