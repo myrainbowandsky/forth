@@ -59,7 +59,7 @@ function initCronJob() {
   const cronSchedule = getCronSchedule()
 
   console.log('\n' + '='.repeat(80))
-  console.log('🚀 内容工厂 - 定时调度器')
+  console.log('🚀 内容营销智能体 - 定时调度器')
   console.log('='.repeat(80))
   console.log('[Cron] 调度表达式:', cronSchedule)
   console.log('[Cron] 当前时间:', new Date().toLocaleString('zh-CN'))

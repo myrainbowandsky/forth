@@ -163,7 +163,7 @@ export default function Dashboard() {
           <h1 className="text-4xl font-bold text-gray-900 mb-2 bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
             仪表盘
           </h1>
-          <p className="text-gray-500 text-lg mb-6">欢迎回来！这是您的内容工厂数据概览</p>
+          <p className="text-gray-500 text-lg mb-6">欢迎回来！这是您的内容营销智能体数据概览</p>
 
           {/* Time Filters */}
           <div className="flex space-x-2 bg-white/30 backdrop-blur-md p-1 rounded-xl inline-flex border border-white/50">

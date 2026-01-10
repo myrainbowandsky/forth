@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { WechatPublishRequest } from '@/types/wechat-publish'
+import { prepareNewspicContent } from '@/lib/markdown-utils'
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +34,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 设置默认值
-    const publishData: WechatPublishRequest = {
+    const articleType = body.articleType || 'news'
+    let publishData: WechatPublishRequest = {
       wechatAppid: body.wechatAppid,
       title: body.title,
       content: body.content,
@@ -41,7 +43,26 @@ export async function POST(request: NextRequest) {
       coverImage: body.coverImage,
       author: body.author,
       contentFormat: body.contentFormat || 'markdown',
-      articleType: body.articleType || 'news',
+      articleType: articleType,
+    }
+
+    // 小绿书模式：进行内容预处理
+    if (articleType === 'newspic') {
+      console.log('📱 [小绿书模式] 开始预处理内容...')
+      const processedContent = prepareNewspicContent(body.content)
+
+      // 智能截断内容到1000字
+      publishData.content = processedContent.content
+
+      // 如果没有提供封面图，使用处理后的封面图
+      if (!publishData.coverImage && processedContent.coverImage) {
+        publishData.coverImage = processedContent.coverImage
+      }
+
+      console.log('✅ [小绿书模式] 预处理完成:')
+      console.log('  - 内容长度:', publishData.content.length)
+      console.log('  - 图片数量:', processedContent.images.length)
+      console.log('  - 封面图:', publishData.coverImage || '无')
     }
 
     // 调用外部 API

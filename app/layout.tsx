@@ -3,7 +3,7 @@ import './globals.css'
 import Sidebar from '@/components/Sidebar'
 
 export const metadata: Metadata = {
-  title: '内容工厂Agent',
+  title: '内容营销智能体',
   description: '智能内容创作与发布平台',
 }
 

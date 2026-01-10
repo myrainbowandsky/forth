@@ -163,3 +163,56 @@ export function prepareXiaohongshuContent(
   // 超过长度限制时截断，并添加省略号
   return plainText.substring(0, maxLength - 3) + '...'
 }
+
+/**
+ * 准备小绿书（图文模式）发布内容
+ * - 提取所有图片（最多20张）
+ * - 将内容转换为纯文本（最多1000字）
+ * - 智能截断内容，保持完整性
+ * @param markdown Markdown 格式的内容
+ * @returns 处理后的内容对象
+ */
+export function prepareNewspicContent(markdown: string): {
+  content: string      // 纯文本内容（最多1000字）
+  images: string[]     // 图片URL数组（最多20张）
+  coverImage: string   // 封面图
+} {
+  // 1. 提取所有图片
+  const allImages = extractImagesFromMarkdown(markdown)
+
+  // 2. 转换为纯文本
+  const plainText = markdownToPlainText(markdown)
+
+  // 3. 智能截断到1000字
+  let content = plainText
+  if (plainText.length > 1000) {
+    // 尝试在句号、问号、感叹号处截断，保持内容完整性
+    const truncated = plainText.substring(0, 1000)
+    const lastSentenceEnd = Math.max(
+      truncated.lastIndexOf('。'),
+      truncated.lastIndexOf('！'),
+      truncated.lastIndexOf('？'),
+      truncated.lastIndexOf('\n')
+    )
+
+    if (lastSentenceEnd > 500) {
+      // 如果找到合适的截断点，在截断点处结束
+      content = plainText.substring(0, lastSentenceEnd + 1)
+    } else {
+      // 否则直接截断并添加省略号
+      content = truncated.substring(0, 997) + '...'
+    }
+  }
+
+  // 4. 限制图片数量（最多20张）
+  const images = allImages.slice(0, 20)
+
+  // 5. 封面图（第一张图片，如果没有则返回空字符串）
+  const coverImage = images.length > 0 ? images[0] : ''
+
+  return {
+    content,
+    images,
+    coverImage
+  }
+}

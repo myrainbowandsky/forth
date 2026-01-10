@@ -76,7 +76,7 @@ export default function Sidebar() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">内容工厂</h1>
+            <h1 className="text-lg font-bold text-gray-900">内容营销智能体</h1>
           </div>
         </div>
         <button
@@ -114,7 +114,7 @@ export default function Sidebar() {
               <Zap className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">内容工厂</h1>
+              <h1 className="text-xl font-bold text-gray-900">内容营销智能体</h1>
               <p className="text-xs text-gray-500">智能创作平台</p>
             </div>
           </div>

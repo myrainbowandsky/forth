@@ -3,16 +3,79 @@
  * 使用即梦4.0模型生成文章配图
  */
 
+import * as fs from 'fs'
+import * as path from 'path'
+import * as https from 'https'
+
 // 即梦AI API 配置 (火山引擎豆包API)
-const JIMENG_AI_KEY = process.env.JIMENG_AI_KEY || ''
-const JIMENG_AI_BASE = process.env.JIMENG_AI_BASE || 'https://ark.cn-beijing.volces.com/api/v3/images/generations'
-const JIMENG_AI_MODEL = process.env.JIMENG_AI_MODEL || 'doubao-seedream-4-5-251128'
+const JIMENG_AI_KEY = process.env.JIMENG_API_KEY || ''
+const JIMENG_AI_BASE = process.env.JIMENG_API_BASE || 'https://ark.cn-beijing.volces.com/api/v3/images/generations'
+const JIMENG_AI_MODEL = process.env.JIMENG_MODEL || 'doubao-seedream-4-5-251128'
 
 // OpenAI API 配置（用于生成图片提示词）
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ''
 const OPENAI_API_BASE = process.env.OPENAI_API_BASE || 'https://api.deepseek.com'
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'deepseek-chat'
 
+// 本地图片存储路径配置
+const LOCAL_IMAGES_DIR = path.join(process.cwd(), 'public', 'generated-images')
+
+/**
+ * 确保图片存储目录存在
+ */
+function ensureImagesDir(): void {
+  if (!fs.existsSync(LOCAL_IMAGES_DIR)) {
+    fs.mkdirSync(LOCAL_IMAGES_DIR, { recursive: true })
+  }
+}
+
+/**
+ * 从URL下载图片并保存到本地
+ * @param imageUrl 原始图片URL
+ * @param filename 本地文件名
+ * @returns 本地图片URL路径
+ */
+async function downloadImage(imageUrl: string, filename: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    ensureImagesDir()
+    const localPath = path.join(LOCAL_IMAGES_DIR, filename)
+
+    console.log(`[即梦AI] 下载图片: ${imageUrl.substring(0, 80)}... -> ${filename}`)
+
+    https.get(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 30000
+    }, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`下载失败: HTTP ${response.statusCode}`))
+        return
+      }
+
+      const chunks: Buffer[] = []
+      response.on('data', (chunk) => chunks.push(chunk))
+      response.on('end', () => {
+        const buffer = Buffer.concat(chunks)
+        fs.writeFileSync(localPath, buffer)
+        const localUrl = `/generated-images/${filename}`
+        console.log(`[即梦AI] 图片保存成功: ${localUrl}`)
+        resolve(localUrl)
+      })
+    }).on('error', (err) => {
+      reject(new Error(`下载失败: ${err.message}`))
+    })
+  })
+}
+
+/**
+ * 生成唯一的文件名
+ */
+function generateFilename(index: number): string {
+  const timestamp = Date.now()
+  const random = Math.random().toString(36).substring(2, 8)
+  return `img-${timestamp}-${index}-${random}.jpeg`
+}
 
 /**
  * 调用 OpenAI API 生成图片提示词
@@ -229,16 +292,26 @@ export async function generateArticleImagesWithJimeng(
     // 等待所有图片生成完成
     const results = await Promise.all(imagePromises)
 
-    // 收集成功的图片URL
+    // 收集成功的图片URL并下载到本地
     const imageUrls: string[] = []
-    results.forEach((imageUrl, index) => {
+    for (let index = 0; index < results.length; index++) {
+      const imageUrl = results[index]
       if (imageUrl) {
-        imageUrls.push(imageUrl)
-        console.log(`[即梦AI] 第 ${index + 1} 张图片生成成功`)
+        try {
+          // 下载图片到本地
+          const filename = generateFilename(index)
+          const localUrl = await downloadImage(imageUrl, filename)
+          imageUrls.push(localUrl)
+          console.log(`[即梦AI] 第 ${index + 1} 张图片生成并保存成功`)
+        } catch (error) {
+          console.error(`[即梦AI] 第 ${index + 1} 张图片下载失败:`, error)
+          // 如果下载失败，仍然返回原始URL（虽然可能无法显示）
+          imageUrls.push(imageUrl)
+        }
       } else {
         console.warn(`[即梦AI] 第 ${index + 1} 张图片生成失败，跳过`)
       }
-    })
+    }
 
     console.log(`[即梦AI] 成功生成 ${imageUrls.length}/${imageCount} 张图片`)
     return imageUrls

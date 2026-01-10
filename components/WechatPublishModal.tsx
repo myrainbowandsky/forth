@@ -215,7 +215,7 @@ export default function WechatPublishModal({
                 <span className="ml-2 text-sm text-gray-700">
                   小绿书
                   <span className="text-xs text-gray-500 ml-1">
-                    (图文消息，需包含图片)
+                    (图文消息，纯文本+最多20张图，自动截断1000字)
                   </span>
                 </span>
               </label>
