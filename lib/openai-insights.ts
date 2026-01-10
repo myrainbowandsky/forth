@@ -6,40 +6,98 @@
 import { ArticleSummary, EnhancedInsight, AIInsightsResult } from '@/types/insights'
 import { cleanHtmlContent } from './html-cleaner'
 
-// OpenAI API 配置
+// OpenAI API 配置（主模型：DeepSeek）
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ''
 const OPENAI_API_BASE = process.env.OPENAI_API_BASE || 'https://openrouter.ai/api/v1'
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'openai/gpt-4o'
 
+// Fallback API 配置（备用模型：豆包）
+const FALLBACK_API_KEY = process.env.FALLBACK_API_KEY || ''
+const FALLBACK_API_BASE = process.env.FALLBACK_API_BASE || ''
+const FALLBACK_MODEL = process.env.FALLBACK_MODEL || ''
+
 /**
- * 调用 OpenAI 兼容的 API
+ * 调用 AI API（支持自动切换到备用模型）
  */
 async function callOpenAI(messages: Array<{ role: string; content: string }>, temperature: number = 0.7): Promise<string> {
-  if (!OPENAI_API_KEY) {
-    throw new Error('未配置 OPENAI_API_KEY，请在 .env.local 文件中配置')
+  // 配置参数（主模型）
+  const primaryConfig = {
+    apiKey: OPENAI_API_KEY,
+    apiBase: OPENAI_API_BASE,
+    model: OPENAI_MODEL,
+    name: 'DeepSeek'
   }
 
-  const response = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
+  // 配置参数（备用模型）
+  const fallbackConfig = {
+    apiKey: FALLBACK_API_KEY,
+    apiBase: FALLBACK_API_BASE,
+    model: FALLBACK_MODEL,
+    name: '豆包'
+  }
+
+  // 尝试调用 API
+  async function tryAPI(config: { apiKey: string; apiBase: string; model: string; name: string }): Promise<string> {
+    if (!config.apiKey) {
+      throw new Error(`未配置 ${config.name} API Key`)
+    }
+
+    const url = `${config.apiBase}/chat/completions`
+    console.log(`[${config.name} API] 请求 URL:`, url)
+    console.log(`[${config.name} API] 模型:`, config.model)
+    console.log(`[${config.name} API] 消息数量:`, messages.length)
+
+    const requestBody = {
+      model: config.model,
       messages,
       temperature,
-      max_tokens: 2500,
-    }),
-  })
+      max_tokens: 8192,
+    }
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`OpenAI API 调用失败: ${response.status} ${errorText}`)
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    })
+
+    console.log(`[${config.name} API] 响应状态:`, response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[${config.name} API] 错误详情:`, errorText)
+      throw new Error(`${config.name} API 调用失败: ${response.status} ${errorText}`)
+    }
+
+    const data = await response.json()
+    console.log(`[${config.name} API] 响应成功，choices 数量:`, data.choices?.length || 0)
+    return data.choices[0]?.message?.content || ''
   }
 
-  const data = await response.json()
-  return data.choices[0]?.message?.content || ''
+  // 先尝试主模型（DeepSeek）
+  try {
+    console.log('[AI分析] 尝试使用主模型: DeepSeek')
+    return await tryAPI(primaryConfig)
+  } catch (primaryError) {
+    console.error('[AI分析] 主模型失败，错误:', primaryError instanceof Error ? primaryError.message : primaryError)
+
+    // 检查是否有备用模型配置
+    if (!fallbackConfig.apiKey || !fallbackConfig.apiBase) {
+      console.error('[AI分析] 未配置备用模型，无法切换')
+      throw primaryError
+    }
+
+    // 自动切换到备用模型（豆包）
+    console.log('[AI分析] 自动切换到备用模型: 豆包')
+    try {
+      return await tryAPI(fallbackConfig)
+    } catch (fallbackError) {
+      console.error('[AI分析] 备用模型也失败，错误:', fallbackError instanceof Error ? fallbackError.message : fallbackError)
+      throw new Error(`所有 AI 模型均失败。主模型错误: ${primaryError instanceof Error ? primaryError.message : primaryError} | 备用模型错误: ${fallbackError instanceof Error ? fallbackError.message : fallbackError}`)
+    }
+  }
 }
 
 /**
@@ -88,12 +146,30 @@ ${articlesText}
   "contentType": "内容类型（如：教程、案例分析、观点评论、工具介绍、行业报告等）"
 }
 
-请直接返回 JSON 数组，不要包含任何其他文字说明。`
+**CRITICAL: 输出格式要求**
+1. 直接返回 JSON 数组，不要包含任何其他文字说明
+2. **所有标点符号必须是英文半角标点："" (英文双引号), : (英文冒号), [] (英文方括号)**
+3. **严禁使用中文标点：""""：】【】（中文标点）**
+4. 不要在 JSON 中添加注释
+5. 字符串中的引号必须使用反斜杠转义：\\"
+6. 不要有尾随逗号
+
+示例：
+[
+  {
+    "articleTitle": "示例标题",
+    "summary": "这是一个示例摘要",
+    "keywords": ["关键词1", "关键词2"],
+    "highlights": ["亮点1", "亮点2"],
+    "targetAudience": "目标受众",
+    "contentType": "内容类型"
+  }
+]`
 
   const messages = [
     {
       role: 'system',
-      content: '你是一位专业的内容分析师，擅长提取文章的核心信息和价值点。请始终以 JSON 格式返回结构化的分析结果。'
+      content: '你是一位专业的内容分析师，擅长提取文章的核心信息和价值点。请始终以标准 JSON 格式返回结构化的分析结果，使用英文标点符号，不要使用中文标点。'
     },
     {
       role: 'user',
@@ -103,7 +179,7 @@ ${articlesText}
 
   try {
     const response = await callOpenAI(messages, 0.5)
-    console.log('[AI洞察] AI 响应原始内容:', response)
+    console.log('[AI洞察] AI 响应原始内容:', response?.substring(0, 500) + '...')
 
     // 提取 JSON 内容（可能包含在代码块中）
     let jsonText = response
@@ -112,7 +188,16 @@ ${articlesText}
       jsonText = jsonMatch[1]
     }
 
-    const parsedSummaries = JSON.parse(jsonText)
+    console.log('[AI洞察] 原始 JSON (前200字符):', jsonText?.substring(0, 200))
+
+    // 使用 tryParseJSON 自动处理清理和解析
+    let parsedSummaries
+    try {
+      parsedSummaries = tryParseJSON(jsonText)
+    } catch (parseError) {
+      console.error('[AI洞察] JSON 解析失败，原始内容:', jsonText?.substring(0, 1000))
+      throw new Error(`JSON 解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`)
+    }
 
     // 添加指标数据
     const summaries: ArticleSummary[] = parsedSummaries.map((summary: any, index: number) => {
@@ -134,6 +219,82 @@ ${articlesText}
   } catch (error) {
     console.error('[AI洞察] 生成文章摘要失败:', error)
     throw new Error(`生成文章摘要失败: ${error instanceof Error ? error.message : '未知错误'}`)
+  }
+}
+
+/**
+ * 清理和修复 AI 返回的 JSON 字符串
+ * 处理中文标点、注释、尾随逗号、未转义引号等常见问题
+ */
+function cleanAIJsonString(jsonString: string): string {
+  let cleaned = jsonString
+
+  // 1. 首先替换所有中文全角引号为英文引号（最关键）
+  // 使用更精确的 Unicode 匹配，确保所有变体都被替换
+  cleaned = cleaned
+    .replace(/[\u201c\u201d\u201e\u201f\u275d\u275e\u301d\u301e]/g, '"')   // 中文左右引号 -> 英文
+    .replace(/[\u2018\u2019\u201a\u201b\u275b\u275c]/g, "'")   // 中文左右单引号 -> 英文
+
+  // 2. 替换全角标点为半角（在 JSON 结构中）
+  cleaned = cleaned
+    .replace(/，/g, ',')  // 中文逗号
+    .replace(/：/g, ':')  // 中文冒号
+    .replace(/；/g, ';')  // 中文分号
+    .replace(/（/g, '(')  // 中文左括号
+    .replace(/）/g, ')')  // 中文右括号
+    .replace(/【/g, '[')  // 中文左方括号
+    .replace(/】/g, ']')  // 中文右方括号
+
+  // 3. 移除 JavaScript 风格的注释 (// 和 /* */)
+  cleaned = cleaned
+    .replace(/\/\/.*$/gm, '')  // 单行注释
+    .replace(/\/\*[\s\S]*?\*\//g, '')  // 多行注释
+
+  // 4. 移除尾随逗号（在对象和数组中）
+  cleaned = cleaned
+    .replace(/,\s*}/g, '}')   // 对象尾随逗号
+    .replace(/,\s*]/g, ']')   // 数组尾随逗号
+
+  // 5. 移除控制字符
+  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '')
+
+  return cleaned.trim()
+}
+
+/**
+ * 尝试解析 JSON，如果失败则尝试修复后再次解析
+ */
+function tryParseJSON(jsonString: string): any {
+  // 首先尝试标准解析
+  try {
+    return JSON.parse(jsonString)
+  } catch (e) {
+    console.log('[JSON修复] 标准解析失败，尝试清理和修复...')
+  }
+
+  // 清理 JSON 字符串
+  const cleaned = cleanAIJsonString(jsonString)
+  console.log('[JSON修复] 清理完成，JSON 长度:', cleaned.length, '(原长度:', jsonString.length, ')')
+
+  // 再次尝试解析
+  try {
+    const result = JSON.parse(cleaned)
+    console.log('[JSON修复] 清理后解析成功')
+    return result
+  } catch (e) {
+    console.error('[JSON修复] 清理后仍然解析失败')
+    console.error('[JSON修复] 错误信息:', (e as SyntaxError).message)
+
+    // 提取错误位置附近的内容
+    const match = (e as SyntaxError).message?.match(/position (\d+)/)
+    if (match) {
+      const pos = parseInt(match[1])
+      const start = Math.max(0, pos - 100)
+      const end = Math.min(cleaned.length, pos + 100)
+      console.error('[JSON修复] 错误位置附近内容:', cleaned.substring(start, end))
+    }
+
+    throw e
   }
 }
 
@@ -189,12 +350,27 @@ ${summariesText}
 - 洞察数量至少 5 条，每条都有实际价值
 - supportingArticles 中的文章标题必须来自上述文章列表
 - creativeAdvice 要具体可执行，不要泛泛而谈
-- 直接返回 JSON，不要包含任何其他文字说明`
+- 直接返回 JSON，不要包含任何其他文字说明
+
+**CRITICAL: 输出格式要求**
+1. 直接返回 JSON 对象，不要包含任何其他文字说明
+2. **所有标点符号必须是英文半角标点："" (英文双引号), : (英文冒号), [] (英文方括号)**
+3. **严禁使用中文标点：""""：】【】（中文标点）**
+4. 不要在 JSON 中添加注释
+5. 字符串中的引号必须使用反斜杠转义：\\"
+6. 不要有尾随逗号
+
+示例：
+{
+  "insights": [{"title": "示例洞察", "description": "示例描述", "supportingArticles": ["文章1"], "creativeAdvice": "示例建议", "relatedKeywords": ["关键词1"], "trend": "rising"}],
+  "overallTrends": ["趋势1", "趋势2"],
+  "recommendedTopics": ["选题1", "选题2"]
+}`
 
   const messages = [
     {
       role: 'system',
-      content: '你是一位资深的内容策略专家，擅长从大量内容中提炼出有价值的选题洞察和创作建议。请始终以 JSON 格式返回结构化的分析结果。'
+      content: '你是一位资深的内容策略专家，擅长从大量内容中提炼出有价值的选题洞察和创作建议。请始终以标准 JSON 格式返回结构化的分析结果，使用英文标点符号，不要使用中文标点。'
     },
     {
       role: 'user',
@@ -213,15 +389,10 @@ ${summariesText}
       jsonText = jsonMatch[1]
     }
 
-    // 清理中文引号和可能的格式问题
-    jsonText = jsonText
-      .replace(/"/g, '"')  // 替换中文左引号
-      .replace(/"/g, '"')  // 替换中文右引号
-      .replace(/'/g, "'")  // 替换中文左单引号
-      .replace(/'/g, "'")  // 替换中文右单引号
-      .trim()
+    console.log('[AI洞察] 原始 JSON (前200字符):', jsonText?.substring(0, 200))
 
-    const result = JSON.parse(jsonText)
+    // 使用 tryParseJSON 自动处理清理和解析
+    const result = tryParseJSON(jsonText)
 
     console.log(`[AI洞察] 成功生成 ${result.insights?.length || 0} 条选题洞察`)
     return result
@@ -390,7 +561,8 @@ ${topic.relatedKeywords && topic.relatedKeywords.length > 0 ? `**相关关键词
       jsonText = jsonMatch[1]
     }
 
-    const article = JSON.parse(jsonText)
+    // 使用 tryParseJSON 自动处理清理和解析
+    const article = tryParseJSON(jsonText)
 
     // 清理markdown格式，转换为纯文本
     const cleanContent = cleanMarkdownFormat(article.content)

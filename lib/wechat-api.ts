@@ -1,24 +1,22 @@
 import { WeChatArticleApiResponse, WeChatArticleSearchParams } from '@/types/wechat-api'
 
-// API配置
-const API_URL = 'https://www.dajiala.com/fbmain/monitor/v3/kw_search'
-const API_KEY = process.env.NEXT_PUBLIC_XIAOHONGSHU_SEARCH_API_KEY || ''
+// 使用本地代理 API（解决 CORS 问题）
+const PROXY_API_URL = '/api/wechat/search'
 
 /**
- * 搜索公众号文章
+ * 搜索公众号文章（通过本地代理）
  * @param params 搜索参数
  * @returns Promise<WeChatArticleApiResponse>
  */
 export async function searchWeChatArticles(
   params: Omit<WeChatArticleSearchParams, 'key'>
 ): Promise<WeChatArticleApiResponse> {
-  const requestBody: WeChatArticleSearchParams = {
+  const requestBody: Omit<WeChatArticleSearchParams, 'key'> = {
     kw: params.kw,
     sort_type: params.sort_type || 1,
     mode: params.mode || 1,
     period: params.period || 7,
     page: params.page || 1,
-    key: API_KEY,
     any_kw: params.any_kw || '',
     ex_kw: params.ex_kw || '',
     verifycode: params.verifycode || '',
@@ -26,7 +24,7 @@ export async function searchWeChatArticles(
   }
 
   try {
-    const response = await fetch(API_URL, {
+    const response = await fetch(PROXY_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -35,17 +33,17 @@ export async function searchWeChatArticles(
     })
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
     }
 
-    const data: WeChatArticleApiResponse = await response.json()
+    const result = await response.json()
 
-    // 检查API返回的状态码（成功时code为0）
-    if (data.code !== 0) {
-      throw new Error(data.msg || 'API请求失败')
+    if (!result.success) {
+      throw new Error(result.error || 'API请求失败')
     }
 
-    return data
+    return result.data as WeChatArticleApiResponse
   } catch (error) {
     console.error('搜索公众号文章失败:', error)
     throw error

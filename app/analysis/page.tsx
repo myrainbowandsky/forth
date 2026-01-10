@@ -392,6 +392,80 @@ export default function AnalysisPage() {
   const topLikesArticles = getTopLikesArticles()
   const topEngagementArticles = getTopEngagementArticles()
 
+  // 生成智能词云
+  const generateWordCloud = (): Array<{ word: string; count: number; size: number }> => {
+    const wordFreq = new Map<string, number>()
+
+    // 1. 搜索关键词（最高权重）
+    if (keyword) {
+      wordFreq.set(keyword, (wordFreq.get(keyword) || 0) + 10)
+    }
+
+    // 2. AI 摘要关键词
+    if (aiInsights?.summaries) {
+      aiInsights.summaries.forEach(summary => {
+        summary.keywords.forEach(kw => {
+          wordFreq.set(kw, (wordFreq.get(kw) || 0) + 2)
+        })
+      })
+    }
+
+    // 3. AI 洞察相关关键词（更高权重）
+    if (aiInsights?.insights) {
+      aiInsights.insights.forEach(insight => {
+        insight.relatedKeywords?.forEach(kw => {
+          wordFreq.set(kw, (wordFreq.get(kw) || 0) + 3)
+        })
+      })
+    }
+
+    // 4. 推荐选题中的关键词
+    if (aiInsights?.recommendedTopics) {
+      aiInsights.recommendedTopics.forEach(topic => {
+        // 简单分词（按空格、标点分割）
+        const words = topic.split(/[\s、，：：,，。.]+/).filter(w => w.length >= 2)
+        words.forEach(w => {
+          wordFreq.set(w, (wordFreq.get(w) || 0) + 1)
+        })
+      })
+    }
+
+    // 5. 如果没有 AI 数据，使用文章标题提取关键词
+    if (!aiInsights) {
+      const items = platform === 'wechat' ? articles : notes
+      items.forEach((item: any) => {
+        const title = item.title || ''
+        // 简单提取 2-4 字的词
+        const words = title.match(/[\u4e00-\u9fa5]{2,4}/g) || []
+        words.forEach(w => {
+          wordFreq.set(w, (wordFreq.get(w) || 0) + 1)
+        })
+      })
+    }
+
+    // 转换为数组并排序
+    const sortedWords = Array.from(wordFreq.entries())
+      .map(([word, count]) => ({ word, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20) // 取前 20 个
+
+    // 计算字体大小（基于 count 归一化）
+    const maxCount = sortedWords[0]?.count || 1
+    const minCount = sortedWords[sortedWords.length - 1]?.count || 1
+
+    return sortedWords.map(({ word, count }) => {
+      // 归一化到 16-48 之间
+      const normalizedSize = 16 + ((count - minCount) / (maxCount - minCount || 1)) * 32
+      return {
+        word,
+        count,
+        size: Math.round(normalizedSize)
+      }
+    })
+  }
+
+  const wordCloudData = generateWordCloud()
+
   // 处理点击笔记/文章
   const handleItemClick = (item: any) => {
     if (platform === 'xiaohongshu' && item.id) {
@@ -413,7 +487,7 @@ export default function AnalysisPage() {
     }
   }
 
-  const handleAnalysis = async () => {
+  const handleAnalysis = async (forceRefresh = false) => {
     if (!keyword) return
 
     setIsAnalyzing(true)
@@ -422,6 +496,59 @@ export default function AnalysisPage() {
     setError('')
 
     try {
+      // 检查缓存（除非强制刷新）
+      if (!forceRefresh) {
+        setProgress(5)
+        console.log(`[缓存] 检查关键词 "${keyword}" 的缓存...`)
+
+        const cacheResponse = await fetch(`/api/history?keyword=${encodeURIComponent(keyword)}&platform=${platform}`)
+        const cacheData = await cacheResponse.json()
+
+        if (cacheData.success && cacheData.cached && cacheData.data) {
+          console.log('[缓存] 找到缓存数据:', {
+            keyword: cacheData.data.keyword,
+            platform: cacheData.data.platform,
+            resultCount: cacheData.data.resultCount,
+            timestamp: new Date(cacheData.data.timestamp).toLocaleString()
+          })
+
+          // 提示用户是否使用缓存
+          const useCache = confirm(
+            `找到 "${keyword}" 的缓存数据（${new Date(cacheData.data.timestamp).toLocaleString()}）\n\n` +
+            `是否使用缓存数据？\n` +
+            `• 点击"确定"使用缓存（快速加载）\n` +
+            `• 点击"取消"重新爬取（获取最新数据）`
+          )
+
+          if (useCache) {
+            console.log('[缓存] 用户选择使用缓存数据')
+
+            // 使用缓存数据
+            if (platform === 'wechat') {
+              setArticles(cacheData.data.articlesData || [])
+              setApiResponse(cacheData.data.apiResponse)
+            } else {
+              setNotes(cacheData.data.articlesData || [])
+              setXhsApiResponse(cacheData.data.apiResponse)
+            }
+
+            // 恢复 AI 洞察
+            if (cacheData.data.aiInsights) {
+              setAiInsights(cacheData.data.aiInsights)
+            }
+
+            setProgress(100)
+            setIsAnalyzing(false)
+            setShowResult(true)
+            return
+          } else {
+            console.log('[缓存] 用户选择重新爬取')
+          }
+        } else {
+          console.log('[缓存] 没有找到有效缓存')
+        }
+      }
+
       // 阶段1: 开始获取数据
       setProgress(10)
 
@@ -508,66 +635,44 @@ export default function AnalysisPage() {
         }> = []
 
         if (platform === 'wechat' && savedArticlesData && savedArticlesData.length > 0) {
-          // 公众号文章处理
+          // 公众号文章处理 - 按点赞排序取 TOP 6
           const articlesWithEngagement = savedArticlesData.map((article: WeChatArticle) => ({
             ...article,
             engagement: article.read > 0 ? article.praise / article.read : 0
           }))
 
-          // 点赞 TOP5
-          const topLikes = [...articlesWithEngagement]
+          // 按点赞数排序，取 TOP 6
+          topArticles = [...articlesWithEngagement]
             .sort((a, b) => b.praise - a.praise)
-            .slice(0, 5)
+            .slice(0, 6)
+            .map(article => ({
+              title: article.title,
+              content: article.content || '',
+              likes: article.praise || 0,
+              reads: article.read || 0,
+              url: article.url || article.short_link
+            }))
 
-          // 互动率 TOP5
-          const topEngagement = [...articlesWithEngagement]
-            .sort((a, b) => b.engagement - a.engagement)
-            .slice(0, 5)
-
-          // 合并并去重
-          const uniqueArticles = new Map()
-            ;[...topLikes, ...topEngagement].forEach(article => {
-              uniqueArticles.set(article.title, {
-                title: article.title,
-                content: article.content || '',
-                likes: article.praise || 0,
-                reads: article.read || 0,
-                url: article.url || article.short_link
-              })
-            })
-
-          topArticles = Array.from(uniqueArticles.values())
           console.log(`[分析] 筛选出 ${topArticles.length} 篇公众号文章进行 AI 分析`)
         } else if (platform === 'xiaohongshu' && savedArticlesData && savedArticlesData.length > 0) {
-          // 小红书笔记处理
+          // 小红书笔记处理 - 按点赞排序取 TOP 6
           const notesWithEngagement = savedArticlesData.map((note: XiaohongshuNote) => ({
             ...note,
             engagement: note.liked_count / (note.liked_count + note.collected_count + note.comment_count)
           }))
 
-          // 点赞 TOP5
-          const topLikes = [...notesWithEngagement]
+          // 按点赞数排序，取 TOP 6
+          topArticles = [...notesWithEngagement]
             .sort((a, b) => b.liked_count - a.liked_count)
-            .slice(0, 5)
+            .slice(0, 6)
+            .map(note => ({
+              title: note.title,
+              content: note.content || '',
+              likes: note.liked_count || 0,
+              reads: note.interact_count || 0,
+              url: `https://www.xiaohongshu.com/explore/${note.id}`
+            }))
 
-          // 互动率 TOP5
-          const topEngagement = [...notesWithEngagement]
-            .sort((a, b) => b.engagement - a.engagement)
-            .slice(0, 5)
-
-          // 合并并去重
-          const uniqueNotes = new Map()
-            ;[...topLikes, ...topEngagement].forEach(note => {
-              uniqueNotes.set(note.id, {
-                title: note.title,
-                content: note.content || '',
-                likes: note.liked_count || 0,
-                reads: note.interact_count || 0,
-                url: `https://www.xiaohongshu.com/explore/${note.id}`
-              })
-            })
-
-          topArticles = Array.from(uniqueNotes.values())
           console.log(`[分析] 筛选出 ${topArticles.length} 篇小红书笔记进行 AI 分析`)
         }
 
@@ -948,20 +1053,35 @@ export default function AnalysisPage() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center">
                   <Hash className="w-4 h-4 sm:w-5 sm:h-5 mr-2 text-blue-500" />
-                  高频词云
+                  智能词云
+                  <span className="ml-2 text-xs text-gray-500 font-normal">
+                    (点击可搜索)
+                  </span>
                 </h2>
               </div>
               <div className="flex flex-wrap gap-2">
-                {mockAnalysisResult.wordCloud.map((item, index) => (
-                  <span
-                    key={index}
-                    className="px-2 sm:px-3 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer"
-                    style={{ fontSize: `${Math.max(10, 10 + item.size / 5)}px` }}
-                  >
-                    {item.word}
-                    <span className="ml-1 text-xs opacity-60">({item.count})</span>
-                  </span>
-                ))}
+                {wordCloudData.length > 0 ? (
+                  wordCloudData.map((item, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        setKeyword(item.word)
+                        handleAnalysis(true)
+                      }}
+                      className={`px-2 sm:px-3 py-1 rounded-full hover:bg-blue-100 active:bg-blue-200 transition-all cursor-pointer ${
+                        item.word === keyword
+                          ? 'bg-blue-500 text-white shadow-md'
+                          : 'bg-blue-50 text-blue-700'
+                      }`}
+                      style={{ fontSize: `${Math.max(12, item.size * 0.4)}px` }}
+                      title={`点击搜索 "${item.word}" (权重: ${item.count})`}
+                    >
+                      {item.word}
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-gray-400 text-sm">暂无词云数据</p>
+                )}
               </div>
             </div>
 

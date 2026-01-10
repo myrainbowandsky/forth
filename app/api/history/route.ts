@@ -62,15 +62,64 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET - 获取搜索历史列表
+// GET - 获取搜索历史列表或查询单个关键词的缓存
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '50')
     const platform = searchParams.get('platform') // 可选的平台过滤
+    const keyword = searchParams.get('keyword') // 可选的关键词查询（用于缓存）
 
     const db = getDb()
 
+    // 如果指定了关键词，查询该关键词的最新缓存（24小时内）
+    if (keyword) {
+      const queryPlatform = platform || 'wechat'
+      const cacheExpiry = 24 * 60 * 60 * 1000 // 24小时
+      const cacheTime = Date.now() - cacheExpiry
+
+      const stmt = db.prepare(`
+        SELECT
+          id,
+          keyword,
+          platform,
+          timestamp,
+          result_count as resultCount,
+          articles_data as articlesData,
+          api_response as apiResponse,
+          ai_insights as aiInsights,
+          created_at as createdAt
+        FROM search_history
+        WHERE keyword = ? AND platform = ? AND timestamp > ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+      `)
+
+      const row = stmt.get(keyword, queryPlatform, cacheTime) as any
+
+      if (row) {
+        // 找到缓存
+        return NextResponse.json({
+          success: true,
+          cached: true,
+          data: {
+            ...row,
+            articlesData: row.articlesData ? JSON.parse(row.articlesData) : null,
+            apiResponse: row.apiResponse ? JSON.parse(row.apiResponse) : null,
+            aiInsights: row.aiInsights ? JSON.parse(row.aiInsights) : null,
+          }
+        })
+      } else {
+        // 没有找到缓存
+        return NextResponse.json({
+          success: true,
+          cached: false,
+          data: null
+        })
+      }
+    }
+
+    // 否则返回历史列表
     let query = `
       SELECT
         id,

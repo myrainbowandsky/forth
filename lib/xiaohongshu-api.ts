@@ -5,24 +5,12 @@ import {
   XiaohongshuDetailResponse
 } from '@/types/xiaohongshu-api'
 
-// API配置（从环境变量读取）
-// 注意：使用 NEXT_PUBLIC_ 前缀以便在客户端访问
-const API_URL = process.env.NEXT_PUBLIC_XIAOHONGSHU_SEARCH_API_BASE || 'https://www.dajiala.com/fbmain/monitor/v3/xhs'
-const API_KEY = process.env.NEXT_PUBLIC_XIAOHONGSHU_SEARCH_API_KEY || ''
-
-// 详情接口配置（哼哼猫API，从环境变量读取）
-// 注意：详情接口与搜索接口使用相同的API密钥
-const DETAIL_API_URL = process.env.NEXT_PUBLIC_XIAOHONGSHU_DETAIL_API_BASE || 'https://api.meowload.net/openapi/extract/post'
-const DETAIL_API_KEY = process.env.NEXT_PUBLIC_XIAOHONGSHU_DETAIL_API_KEY || ''
-
-// 检查必需的环境变量
-if (!API_KEY) {
-  console.warn('⚠️ NEXT_PUBLIC_XIAOHONGSHU_SEARCH_API_KEY 未设置，小红书搜索和详情功能可能无法使用')
-  console.warn('当前 API_KEY 值:', API_KEY)
-}
+// 使用本地代理 API（解决 CORS 问题）
+const SEARCH_PROXY_API_URL = '/api/xiaohongshu/search'
+const DETAIL_PROXY_API_URL = '/api/xiaohongshu/detail'
 
 /**
- * 搜索小红书笔记
+ * 搜索小红书笔记（通过本地代理）
  * @param params 搜索参数
  * @returns Promise<XiaohongshuApiResponse>
  */
@@ -37,10 +25,9 @@ export async function searchXiaohongshuNotes(
   console.log('页码:', params.page || 1)
   console.log('排序:', params.sort || 'general')
   console.log('笔记类型:', params.note_type || 'image')
-  console.log('API地址:', API_URL)
+  console.log('代理地址:', SEARCH_PROXY_API_URL)
 
-  const requestBody: XiaohongshuSearchParams = {
-    key: API_KEY,
+  const requestBody: Omit<XiaohongshuSearchParams, 'key'> = {
     type: params.type || 1,
     keyword: params.keyword,
     page: params.page || 1,
@@ -57,7 +44,7 @@ export async function searchXiaohongshuNotes(
     console.log('⏰ 发起POST请求...')
     const fetchStartTime = Date.now()
 
-    const response = await fetch(API_URL, {
+    const response = await fetch(SEARCH_PROXY_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -70,15 +57,22 @@ export async function searchXiaohongshuNotes(
 
     console.log('📡 HTTP响应返回 (耗时 ' + fetchTime + 'ms)')
     console.log('状态码:', response.status)
-    console.log('状态文本:', response.statusText)
 
     if (!response.ok) {
       console.log('❌ HTTP响应不正常!')
-      throw new Error(`HTTP error! status: ${response.status}`)
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
     }
 
     console.log('🔄 解析JSON数据...')
-    const data: XiaohongshuApiResponse = await response.json()
+    const result = await response.json()
+
+    if (!result.success) {
+      console.log('❌ API返回错误:', result.error)
+      throw new Error(result.error || 'API请求失败')
+    }
+
+    const data: XiaohongshuApiResponse = result.data
 
     console.log('✅ 搜索接口返回数据:')
     console.log('  - code:', data.code)
@@ -183,7 +177,7 @@ export async function searchMultiplePages(
 }
 
 /**
- * 获取小红书笔记详情（使用哼哼猫API）
+ * 获取小红书笔记详情（通过本地代理）
  * @param url 笔记分享链接
  * @returns Promise<XiaohongshuDetailResponse>
  */
@@ -191,53 +185,55 @@ export async function getNoteDetail(url: string): Promise<XiaohongshuDetailRespo
   const requestStartTime = Date.now()
 
   console.log('\n┌─────────────────────────────────────────────────────────────')
-  console.log('│ 🌐 [详情接口] 准备发起请求（哼哼猫API）')
+  console.log('│ 🌐 [详情接口] 准备发起请求（本地代理）')
   console.log('│ 目标URL:', url)
-  console.log('│ API地址:', DETAIL_API_URL)
-  console.log('│ API密钥:', DETAIL_API_KEY)
+  console.log('│ 代理地址:', DETAIL_PROXY_API_URL)
 
   try {
     // 构建请求体
-    const requestBody = {
-      url: url
-    }
+    const requestBody = { url }
 
     console.log('│ 请求方法: POST')
     console.log('│ 请求体:', JSON.stringify(requestBody, null, 2))
     console.log('│ ⏰ 发起HTTP请求...')
 
     const fetchStartTime = Date.now()
-    const response = await fetch(DETAIL_API_URL, {
+    const response = await fetch(DETAIL_PROXY_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': DETAIL_API_KEY,
-        'accept-language': 'zh' // 使用中文错误信息
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
     })
     const fetchEndTime = Date.now()
     const fetchTime = fetchEndTime - fetchStartTime
 
     console.log('│ 📡 HTTP响应返回 (耗时 ' + fetchTime + 'ms)')
     console.log('│ 状态码:', response.status)
-    console.log('│ 状态文本:', response.statusText)
-    console.log('│ Content-Type:', response.headers.get('Content-Type'))
+
+    if (!response.ok) {
+      console.log('│ ❌ HTTP响应不正常!')
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+      console.log('│ 错误信息:', errorData.error || '未知错误')
+      console.log('└─────────────────────────────────────────────────────────────')
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+    }
 
     console.log('│ 🔄 解析JSON数据...')
     const parseStartTime = Date.now()
-    const data = await response.json()
+    const result = await response.json()
     const parseEndTime = Date.now()
     const parseTime = parseEndTime - parseStartTime
 
     console.log('│ ✅ JSON解析完成 (耗时 ' + parseTime + 'ms)')
 
-    // 检查HTTP状态码
-    if (!response.ok) {
-      console.log('│ ❌ HTTP响应不正常! 状态码:', response.status)
-      console.log('│ 错误信息:', data.message || '未知错误')
-      throw new Error(data.message || `HTTP error! status: ${response.status}`)
+    if (!result.success) {
+      console.log('│ ❌ API返回错误:', result.error)
+      console.log('└─────────────────────────────────────────────────────────────')
+      throw new Error(result.error || '详情获取失败')
     }
+
+    const data = result.data as XiaohongshuDetailResponse
 
     console.log('│ 📦 返回数据结构:')
     console.log('│   - text (正文):', data.text ? `存在 (${data.text.length}字)` : '不存在')
@@ -265,7 +261,7 @@ export async function getNoteDetail(url: string): Promise<XiaohongshuDetailRespo
     console.log('│ 总耗时:', totalTime + 'ms')
     console.log('└─────────────────────────────────────────────────────────────')
 
-    return data as XiaohongshuDetailResponse
+    return data
   } catch (error) {
     const requestEndTime = Date.now()
     const totalTime = requestEndTime - requestStartTime
