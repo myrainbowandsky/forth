@@ -5,7 +5,6 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateArticle } from '@/lib/openai-insights'
-import { generateArticleImages } from '@/lib/siliconflow-image'
 import { generateArticleImagesWithJimeng } from '@/lib/jimeng-image'
 import { ArticleGenerationRequest, GeneratedArticle, Topic } from '@/types/insights'
 
@@ -126,20 +125,13 @@ export async function POST(request: NextRequest) {
     console.log('[API] 调用 AI 生成文章...')
     const { title, content } = await generateArticle(topic, params)
 
-    // 生成配图（支持多种图片生成服务）
+    // 生成配图（使用即梦AI）
     console.log('[API] 开始生成文章配图...')
     let images: string[] = []
 
     if (params.imageCount > 0) {
-      const imageProvider = params.imageProvider || 'siliconflow' // 默认使用硅基流动
-
-      if (imageProvider === 'jimeng') {
-        console.log('[API] 使用即梦AI生成配图...')
-        images = await generateArticleImagesWithJimeng(title, content, params.imageCount)
-      } else {
-        console.log('[API] 使用硅基流动生成配图...')
-        images = await generateArticleImages(title, content, params.imageCount)
-      }
+      console.log('[API] 使用即梦AI生成配图...')
+      images = await generateArticleImagesWithJimeng(title, content, params.imageCount)
     }
 
     // 将图片嵌入到文章内容中

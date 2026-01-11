@@ -567,35 +567,9 @@ export default function CreatePage() {
                     <Wand2 className="w-4 h-4 inline mr-1" />
                     图片生成服务
                   </label>
-                  <div className="space-y-2">
-                    <label className="flex items-center p-3 rounded-lg border cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="imageProvider"
-                        value="jimeng"
-                        checked={imageProvider === 'jimeng'}
-                        onChange={(e) => setImageProvider(e.target.value)}
-                        className="mr-3"
-                      />
-                      <div className="flex-1">
-                        <p className="font-medium text-blue-600">即梦AI (推荐)</p>
-                        <p className="text-sm text-gray-500">高质量4K输出，支持文字和多图生成</p>
-                      </div>
-                    </label>
-                    <label className="flex items-center p-3 rounded-lg border cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="imageProvider"
-                        value="siliconflow"
-                        checked={imageProvider === 'siliconflow'}
-                        onChange={(e) => setImageProvider(e.target.value)}
-                        className="mr-3"
-                      />
-                      <div className="flex-1">
-                        <p className="font-medium text-purple-600">硅基流动</p>
-                        <p className="text-sm text-gray-500">Kolors绘画模型，性价比选择</p>
-                      </div>
-                    </label>
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <p className="font-medium text-blue-600">即梦AI</p>
+                    <p className="text-sm text-gray-500">高质量4K输出，支持文字和多图生成</p>
                   </div>
                 </div>
               )}
